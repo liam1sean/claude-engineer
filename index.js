@@ -1,33 +1,40 @@
-import Anthropic from "@anthropic-ai/sdk";
-import dotenv from "dotenv";
+import { sendPromptToClaude } from "./src/claudeService.js";
 
-dotenv.config({ quiet: true });
-
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-});
-
-function getUserPrompt() {
+function parseArguments() {
   const args = process.argv.slice(2);
-  if (args.length === 0) {
-    return "Explain what an API is in simple terms.";
+
+  if (args.includes("--help")) {
+    return { mode: "help" };
   }
-  return args.join(" ");
+
+  if (args.length === 0) {
+    return { mode: "run", prompt: "Explain what an API is in simple terms." };
+  }
+
+  return { mode: "run", prompt: args.join(" ") };
 }
 
 async function run() {
   try {
-    const userPrompt = getUserPrompt();
+    const { mode, prompt } = parseArguments();
 
-    const message = await anthropic.messages.create({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 800,
-      messages: [{ role: "user", content: userPrompt }],
-    });
+    if (mode === "help") {
+      console.log(`
+Usage:
+  node index.js "Your prompt here"
 
-    console.log(message.content[0].text);
+Examples:
+  node index.js "Explain APIs simply"
+  node index.js --help
+`);
+      return;
+    }
+
+    const responseText = await sendPromptToClaude(prompt);
+    console.log(responseText);
   } catch (err) {
-    console.error(err);
+    console.error(`ERROR: ${err?.message ?? err}`);
+    process.exitCode = 1;
   }
 }
 
