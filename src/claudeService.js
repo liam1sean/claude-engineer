@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import dotenv from "dotenv";
+import { config } from "../config/config.js";
 
 dotenv.config({ quiet: true });
 
@@ -10,8 +11,8 @@ const anthropic = new Anthropic({
 export async function sendPromptToClaude(prompt) {
   try {
     const message = await anthropic.messages.create({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 800,
+      model: config.claude.model,
+      max_tokens: config.claude.maxTokens,
       messages: [{ role: "user", content: prompt }],
     });
 
@@ -22,7 +23,7 @@ export async function sendPromptToClaude(prompt) {
 
     if (!process.env.ANTHROPIC_API_KEY) {
       throw new Error(
-        'Missing API key. Add ANTHROPIC_API_KEY to your .env file (and restart the terminal).'
+        "Missing API key. Add ANTHROPIC_API_KEY to your .env file and restart the server."
       );
     }
 
