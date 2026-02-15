@@ -16,3 +16,5 @@ Beginner sandbox project for learning how to call Claude from Node.js.
 1) Install dependencies:
 ```bash
 npm install
+
+# Test CI workflow
