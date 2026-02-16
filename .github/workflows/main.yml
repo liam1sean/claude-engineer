@@ -37,7 +37,7 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2
 
-      # Step 6: Log in to Google Container Registry
+      # Step 6: Log in to Google Artifact Registry
       - name: GCP Auth
         uses: google-github-actions/auth@v1
         with:
@@ -46,11 +46,11 @@ jobs:
       # Step 7: Build Docker image
       - name: Build Docker Image
         run: |
-          IMAGE_NAME=gcr.io/${{ secrets.GCP_PROJECT }}/claude-engineer-api:${{ github.ref_name }}-${{ github.sha }}
+          IMAGE_NAME=gcr.io/${{ secrets.GCP_PROJECT }}/claude-engineer-docker:${{ github.ref_name }}-${{ github.sha }}
           docker build -t $IMAGE_NAME .
 
-      # Step 8: Push Docker image to GCR
+      # Step 8: Push Docker image to Artifact Registry
       - name: Push Docker Image
         run: |
-          IMAGE_NAME=gcr.io/${{ secrets.GCP_PROJECT }}/claude-engineer-api:${{ github.ref_name }}-${{ github.sha }}
+          IMAGE_NAME=gcr.io/${{ secrets.GCP_PROJECT }}/claude-engineer-docker:${{ github.ref_name }}-${{ github.sha }}
           docker push $IMAGE_NAME
