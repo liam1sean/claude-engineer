@@ -46,11 +46,11 @@ jobs:
       # Step 7: Build Docker image
       - name: Build Docker Image
         run: |
-          IMAGE_NAME=gcr.io/${{ secrets.GCP_PROJECT }}/claude-engineer-docker:${{ github.ref_name }}-${{ github.sha }}
+          IMAGE_NAME=us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT }}/claude-engineer-docker/claude-engineer-api:${{ github.ref_name }}-${{ github.sha }}
           docker build -t $IMAGE_NAME .
 
       # Step 8: Push Docker image to Artifact Registry
       - name: Push Docker Image
         run: |
-          IMAGE_NAME=gcr.io/${{ secrets.GCP_PROJECT }}/claude-engineer-docker:${{ github.ref_name }}-${{ github.sha }}
+          IMAGE_NAME=us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT }}/claude-engineer-docker/claude-engineer-api:${{ github.ref_name }}-${{ github.sha }}
           docker push $IMAGE_NAME
