@@ -9,48 +9,46 @@ on:
     branches:
       - main
       - develop
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  build:
+  build-and-test:
     runs-on: ubuntu-latest
 
     steps:
       # Step 1: Checkout the repository
       - name: Checkout Code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      # Step 2: Set up Node.js
+      # Step 2: Set up Node.js (use an LTS version)
       - name: Setup Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: "20"
+          cache: "npm"
 
-      # Step 3: Install dependencies
+      # Step 3: Install dependencies (deterministic)
       - name: Install Dependencies
-        run: npm install
+        run: npm ci
 
-      # Step 4: Run tests (optional, placeholder)
+      # Step 4: Run tests (if present)
       - name: Run Tests
-        run: echo "No tests yet"
+        run: npm test --if-present
 
-      # Step 5: Set up Docker
+      # Step 5: Run lint (if present)
+      - name: Run Lint
+        run: npm run lint --if-present
+
+      # Step 6: Build Docker image (CI validates Dockerfile builds, but does NOT push)
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
+        uses: docker/setup-buildx-action@v3
 
-      # Step 6: Log in to Google Container Registry
-      - name: GCP Auth
-        uses: google-github-actions/auth@v1
-        with:
-          credentials_json: ${{ secrets.GCP_SERVICE_ACCOUNT }}
-
-      # Step 7: Build Docker image
-      - name: Build Docker Image
+      - name: Build Docker Image (no push)
         run: |
-          IMAGE_NAME=gcr.io/${{ secrets.GCP_PROJECT }}/claude-engineer-api:${{ github.ref_name }}-${{ github.sha }}
+          IMAGE_NAME=claude-engineer-api:${{ github.ref_name }}-${{ github.sha }}
           docker build -t $IMAGE_NAME .
-
-      # Step 8: Push Docker image to GCR
-      - name: Push Docker Image
-        run: |
-          IMAGE_NAME=gcr.io/${{ secrets.GCP_PROJECT }}/claude-engineer-api:${{ github.ref_name }}-${{ github.sha }}
-          docker push $IMAGE_NAME
+          docker image inspect $IMAGE_NAME > /dev/null
