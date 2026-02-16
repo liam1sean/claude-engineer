@@ -44,6 +44,17 @@ function asyncHandler(fn) {
 }
 
 // Routes
+app.get("/", (req, res) => {
+  res.status(200).json({
+    service: "claude-engineer-api",
+    ok: true,
+    routes: {
+      health: "GET /health",
+      claude: 'POST /api/claude  { "prompt": "..." }',
+    },
+  });
+});
+
 app.get("/health", (req, res) => {
   res.status(200).json({ ok: true });
 });
