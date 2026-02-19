@@ -1,60 +1,78 @@
-name: CI Pipeline
+name: Deploy (Cloud Run)
 
 on:
   push:
     branches:
-      - main
       - develop
-  pull_request:
-    branches:
       - main
-      - develop
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-${{ github.ref_name }}
+  cancel-in-progress: true
 
 jobs:
-  build:
+  deploy:
     runs-on: ubuntu-latest
 
+    env:
+      PROJECT_ID: claude-engineer-487504
+      REGION: us-central1
+      AR_HOST: us-central1-docker.pkg.dev
+      AR_REPO: claude-engineer-docker
+      IMAGE_NAME: claude-engineer-api
+      RUNTIME_SA: claude-engineer-ci@claude-engineer-487504.iam.gserviceaccount.com
+
     steps:
-      # Step 1: Checkout the repository
-      - name: Checkout Code
-        uses: actions/checkout@v3
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      # Step 2: Set up Node.js
-      - name: Setup Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: 24
-
-      # Step 3: Install dependencies
-      - name: Install Dependencies
-        run: npm install
-
-      # Step 4: Run tests (optional, placeholder)
-      - name: Run Tests
-        run: echo "No tests yet"
-
-      # Step 5: Set up Docker
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
-
-      # Step 6: Authenticate GCP
-      - name: GCP Auth
+      - name: Authenticate to GCP
         uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
-      # Step 7: Configure Docker to use Artifact Registry
-      - name: Configure Docker for Artifact Registry
-        run: gcloud auth configure-docker us-central1-docker.pkg.dev
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.PROJECT_ID }}
 
-      # Step 8: Build Docker image
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.AR_HOST }} --quiet
+
+      - name: Determine target service
+        id: target
+        run: |
+          if [ "${GITHUB_REF_NAME}" = "develop" ]; then
+            echo "service=claude-engineer-api-staging" >> $GITHUB_OUTPUT
+          elif [ "${GITHUB_REF_NAME}" = "main" ]; then
+            echo "service=claude-engineer-api" >> $GITHUB_OUTPUT
+          else
+            echo "Unsupported branch"
+            exit 1
+          fi
+
+          echo "image=${{ env.AR_HOST }}/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.IMAGE_NAME }}:${GITHUB_SHA}" >> $GITHUB_OUTPUT
+
       - name: Build Docker Image
         run: |
-          IMAGE_NAME=us-central1-docker.pkg.dev/claude-engineer-487504/claude-engineer-docker/claude-engineer-api:${{ github.ref_name }}-${{ github.sha }}
-          docker build -t $IMAGE_NAME .
+          docker build -t "${{ steps.target.outputs.image }}" .
 
-      # Step 9: Push Docker image to Artifact Registry
       - name: Push Docker Image
         run: |
-          IMAGE_NAME=us-central1-docker.pkg.dev/claude-engineer-487504/claude-engineer-docker/claude-engineer-api:${{ github.ref_name }}-${{ github.sha }}
-          docker push $IMAGE_NAME
+          docker push "${{ steps.target.outputs.image }}"
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy "${{ steps.target.outputs.service }}" \
+            --image "${{ steps.target.outputs.image }}" \
+            --region "${{ env.REGION }}" \
+            --platform managed \
+            --service-account "${{ env.RUNTIME_SA }}" \
+            --quiet
+
+      - name: Output Service URL
+        run: |
+          gcloud run services describe "${{ steps.target.outputs.service }}" \
+            --region "${{ env.REGION }}" \
+            --format="value(status.url)"
