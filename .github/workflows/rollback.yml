@@ -1,0 +1,69 @@
+name: Rollback (Cloud Run)
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+      image_sha:
+        description: "Commit SHA to roll back to (the image tag)"
+        required: true
+        type: string
+
+env:
+  PROJECT_ID: claude-engineer-487504
+  REGION: us-central1
+  AR_HOST: us-central1-docker.pkg.dev
+  AR_REPO: claude-engineer-docker
+  IMAGE_NAME: claude-engineer-api
+  RUNTIME_SA: claude-engineer-ci@claude-engineer-487504.iam.gserviceaccount.com
+
+jobs:
+  rollback:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment == 'production' && 'production' || '' }}
+
+    steps:
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+
+      - name: Determine target service + image
+        id: target
+        run: |
+          if [ "${{ inputs.environment }}" = "staging" ]; then
+            echo "service=claude-engineer-api-staging" >> $GITHUB_OUTPUT
+          elif [ "${{ inputs.environment }}" = "production" ]; then
+            echo "service=claude-engineer-api" >> $GITHUB_OUTPUT
+          else
+            echo "Unsupported environment"
+            exit 1
+          fi
+
+          echo "image=${{ env.AR_HOST }}/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.IMAGE_NAME }}:${{ inputs.image_sha }}" >> $GITHUB_OUTPUT
+
+      - name: Roll back Cloud Run to specified image
+        run: |
+          gcloud run deploy "${{ steps.target.outputs.service }}" \
+            --image "${{ steps.target.outputs.image }}" \
+            --region "${{ env.REGION }}" \
+            --platform managed \
+            --service-account "${{ env.RUNTIME_SA }}" \
+            --quiet
+
+      - name: Output Service URL
+        run: |
+          gcloud run services describe "${{ steps.target.outputs.service }}" \
+            --region "${{ env.REGION }}" \
+            --format="value(status.url)"
