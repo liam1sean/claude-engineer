@@ -10,8 +10,8 @@ on:
         options:
           - staging
           - production
-      image_sha:
-        description: "Commit SHA to roll back to (the image tag)"
+      image_ref:
+        description: "Full image ref (tag or digest) from Artifact Registry (e.g. ...:tag or ...@sha256:digest)"
         required: true
         type: string
 
@@ -26,6 +26,8 @@ env:
 jobs:
   rollback:
     runs-on: ubuntu-latest
+    # If production is selected, this attaches to the GitHub Environment named "production"
+    # and will require approval due to your protection rules.
     environment: ${{ inputs.environment == 'production' && 'production' || '' }}
 
     steps:
@@ -51,7 +53,10 @@ jobs:
             exit 1
           fi
 
-          echo "image=${{ env.AR_HOST }}/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.IMAGE_NAME }}:${{ inputs.image_sha }}" >> $GITHUB_OUTPUT
+          # Expect full image reference, tag or digest:
+          # us-central1-docker.pkg.dev/.../claude-engineer-api:<tag>
+          # OR us-central1-docker.pkg.dev/.../claude-engineer-api@sha256:<digest>
+          echo "image=${{ inputs.image_ref }}" >> $GITHUB_OUTPUT
 
       - name: Roll back Cloud Run to specified image
         run: |
