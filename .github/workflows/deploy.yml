@@ -11,18 +11,18 @@ concurrency:
   group: deploy-${{ github.ref_name }}
   cancel-in-progress: true
 
+env:
+  PROJECT_ID: claude-engineer-487504
+  REGION: us-central1
+  AR_HOST: us-central1-docker.pkg.dev
+  AR_REPO: claude-engineer-docker
+  IMAGE_NAME: claude-engineer-api
+  RUNTIME_SA: claude-engineer-ci@claude-engineer-487504.iam.gserviceaccount.com
+
 jobs:
-  deploy:
+  deploy_staging:
+    if: github.ref_name == 'develop'
     runs-on: ubuntu-latest
-
-    env:
-      PROJECT_ID: claude-engineer-487504
-      REGION: us-central1
-      AR_HOST: us-central1-docker.pkg.dev
-      AR_REPO: claude-engineer-docker
-      IMAGE_NAME: claude-engineer-api
-      RUNTIME_SA: claude-engineer-ci@claude-engineer-487504.iam.gserviceaccount.com
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -40,27 +40,65 @@ jobs:
       - name: Configure Docker for Artifact Registry
         run: gcloud auth configure-docker ${{ env.AR_HOST }} --quiet
 
-      - name: Determine target service
+      - name: Set image + service
         id: target
         run: |
-          if [ "${GITHUB_REF_NAME}" = "develop" ]; then
-            echo "service=claude-engineer-api-staging" >> $GITHUB_OUTPUT
-          elif [ "${GITHUB_REF_NAME}" = "main" ]; then
-            echo "service=claude-engineer-api" >> $GITHUB_OUTPUT
-          else
-            echo "Unsupported branch"
-            exit 1
-          fi
-
+          echo "service=claude-engineer-api-staging" >> $GITHUB_OUTPUT
           echo "image=${{ env.AR_HOST }}/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.IMAGE_NAME }}:${GITHUB_SHA}" >> $GITHUB_OUTPUT
 
       - name: Build Docker Image
-        run: |
-          docker build -t "${{ steps.target.outputs.image }}" .
+        run: docker build -t "${{ steps.target.outputs.image }}" .
 
       - name: Push Docker Image
+        run: docker push "${{ steps.target.outputs.image }}"
+
+      - name: Deploy to Cloud Run
         run: |
-          docker push "${{ steps.target.outputs.image }}"
+          gcloud run deploy "${{ steps.target.outputs.service }}" \
+            --image "${{ steps.target.outputs.image }}" \
+            --region "${{ env.REGION }}" \
+            --platform managed \
+            --service-account "${{ env.RUNTIME_SA }}" \
+            --quiet
+
+      - name: Output Service URL
+        run: |
+          gcloud run services describe "${{ steps.target.outputs.service }}" \
+            --region "${{ env.REGION }}" \
+            --format="value(status.url)"
+
+  deploy_production:
+    if: github.ref_name == 'main'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.AR_HOST }} --quiet
+
+      - name: Set image + service
+        id: target
+        run: |
+          echo "service=claude-engineer-api" >> $GITHUB_OUTPUT
+          echo "image=${{ env.AR_HOST }}/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.IMAGE_NAME }}:${GITHUB_SHA}" >> $GITHUB_OUTPUT
+
+      - name: Build Docker Image
+        run: docker build -t "${{ steps.target.outputs.image }}" .
+
+      - name: Push Docker Image
+        run: docker push "${{ steps.target.outputs.image }}"
 
       - name: Deploy to Cloud Run
         run: |
