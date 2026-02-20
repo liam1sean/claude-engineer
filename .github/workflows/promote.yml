@@ -12,6 +12,7 @@ env:
   PROJECT_ID: claude-engineer-487504
   REGION: us-central1
   RUNTIME_SA: claude-engineer-ci@claude-engineer-487504.iam.gserviceaccount.com
+  SERVICE_NAME: claude-engineer-api
 
 jobs:
   promote_to_production:
@@ -31,15 +32,35 @@ jobs:
 
       - name: Deploy specified image to Production Cloud Run
         run: |
-          gcloud run deploy "claude-engineer-api" \
+          gcloud run deploy "${{ env.SERVICE_NAME }}" \
             --image "${{ inputs.image_ref }}" \
             --region "${{ env.REGION }}" \
             --platform managed \
             --service-account "${{ env.RUNTIME_SA }}" \
             --quiet
 
-      - name: Output Production Service URL
+      - name: Get Production Service URL
+        id: url
         run: |
-          gcloud run services describe "claude-engineer-api" \
+          URL=$(gcloud run services describe "${{ env.SERVICE_NAME }}" \
             --region "${{ env.REGION }}" \
-            --format="value(status.url)"
+            --format="value(status.url)")
+          echo "url=$URL" >> $GITHUB_OUTPUT
+          echo "$URL"
+
+      - name: Smoke test (GET /)
+        run: |
+          set -e
+          URL="${{ steps.url.outputs.url }}"
+          echo "Hitting: $URL"
+          # retry loop to allow cold start
+          for i in 1 2 3 4 5; do
+            code=$(curl -s -o /dev/null -w "%{http_code}" "$URL" || true)
+            echo "Attempt $i HTTP $code"
+            if [ "$code" = "200" ] || [ "$code" = "404" ]; then
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Smoke test failed: service did not respond with 200/404"
+          exit 1
