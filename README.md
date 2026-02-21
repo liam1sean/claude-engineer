@@ -18,3 +18,4 @@ Beginner sandbox project for learning how to call Claude from Node.js.
 npm install
 
 # Test CI workflow
+Branch protection test
