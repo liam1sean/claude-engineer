@@ -15,21 +15,53 @@ concurrency:
   group: deploy-${{ github.event.workflow_run.head_branch || github.ref_name }}
   cancel-in-progress: true
 
+env:
+  PROJECT_ID: claude-engineer-487504
+  REGION: us-central1
+  AR_HOST: us-central1-docker.pkg.dev
+  AR_REPO: claude-engineer-docker
+  IMAGE_NAME: claude-engineer-api
+  RUNTIME_SA: claude-engineer-ci@claude-engineer-487504.iam.gserviceaccount.com
+
 jobs:
-  deploy:
+  deploy_staging:
+    if: github.ref_name == 'develop'
     runs-on: ubuntu-latest
     # CI gate: skip if the triggering CI run did not succeed.
     # workflow_dispatch bypasses this check (manual emergency use).
     if: github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch'
 
-    env:
-      PROJECT_ID: claude-engineer-487504
-      REGION: us-central1
-      AR_HOST: us-central1-docker.pkg.dev
-      AR_REPO: claude-engineer-docker
-      IMAGE_NAME: claude-engineer-api
-      RUNTIME_SA: claude-engineer-ci@claude-engineer-487504.iam.gserviceaccount.com
+      - name: Set image + service
+        id: target
+        run: |
+          echo "service=claude-engineer-api-staging" >> $GITHUB_OUTPUT
+          echo "image=${{ env.AR_HOST }}/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.IMAGE_NAME }}:${GITHUB_SHA}" >> $GITHUB_OUTPUT
 
+      - name: Build Docker Image
+        run: docker build -t "${{ steps.target.outputs.image }}" .
+
+      - name: Push Docker Image
+        run: docker push "${{ steps.target.outputs.image }}"
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy "${{ steps.target.outputs.service }}" \
+            --image "${{ steps.target.outputs.image }}" \
+            --region "${{ env.REGION }}" \
+            --platform managed \
+            --service-account "${{ env.RUNTIME_SA }}" \
+            --quiet
+
+      - name: Output Service URL
+        run: |
+          gcloud run services describe "${{ steps.target.outputs.service }}" \
+            --region "${{ env.REGION }}" \
+            --format="value(status.url)"
+
+  deploy_production:
+    if: github.ref_name == 'main'
+    runs-on: ubuntu-latest
+    environment: production
     steps:
       # Resolve branch + SHA from the triggering CI run (workflow_run)
       # or from the current ref (workflow_dispatch).
