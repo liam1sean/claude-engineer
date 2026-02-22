@@ -7,7 +7,8 @@
   "scripts": {
     "cli": "node index.js",
     "dev": "nodemon server.js",
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node --check server.js && node --check index.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.74.0",
