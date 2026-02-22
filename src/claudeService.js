@@ -21,12 +21,6 @@ export async function sendPromptToClaude(prompt) {
     const status = err?.status ?? err?.response?.status;
     const msg = err?.message ?? "Unknown error calling Claude";
 
-    if (!process.env.ANTHROPIC_API_KEY) {
-      throw new Error(
-        "Missing API key. Add ANTHROPIC_API_KEY to your .env file and restart the server."
-      );
-    }
-
     if (status === 401) {
       throw new Error("Claude auth failed (401). Your API key is invalid or revoked.");
     }

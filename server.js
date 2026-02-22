@@ -10,6 +10,16 @@ import { config } from "./config/config.js";
 
 dotenv.config();
 
+// Startup guard — fail fast before binding any port
+if (!process.env.ANTHROPIC_API_KEY) {
+  console.error("FATAL: ANTHROPIC_API_KEY is not set. Add it to .env and restart.");
+  process.exit(1);
+}
+if (!process.env.SERVICE_API_KEY) {
+  console.error("FATAL: SERVICE_API_KEY is not set. Add it to .env and restart.");
+  process.exit(1);
+}
+
 const app = express();
 
 // Basic hardening
@@ -43,6 +53,14 @@ function asyncHandler(fn) {
   return (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 }
 
+function requireApiKey(req, res, next) {
+  const key = req.headers["x-api-key"];
+  if (!key || key !== process.env.SERVICE_API_KEY) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+  next();
+}
+
 // Routes
 app.get("/", (req, res) => {
   res.status(200).json({
@@ -61,6 +79,7 @@ app.get("/health", (req, res) => {
 
 app.post(
   "/api/claude",
+  requireApiKey,
   asyncHandler(async (req, res) => {
     const { prompt } = req.body || {};
 

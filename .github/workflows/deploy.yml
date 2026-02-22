@@ -1,19 +1,26 @@
 name: Deploy (Cloud Run)
 
+# Triggered automatically when CI Pipeline completes on main or develop.
+# Only proceeds if CI succeeded — this is the gate.
+# workflow_dispatch is retained for emergency manual deploys;
+# it expects the image for github.sha to already exist in Artifact Registry.
 on:
-  push:
-    branches:
-      - develop
-      - main
+  workflow_run:
+    workflows: ["CI Pipeline"]
+    types: [completed]
+    branches: [main, develop]
   workflow_dispatch:
 
 concurrency:
-  group: deploy-${{ github.ref_name }}
+  group: deploy-${{ github.event.workflow_run.head_branch || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    # CI gate: skip if the triggering CI run did not succeed.
+    # workflow_dispatch bypasses this check (manual emergency use).
+    if: github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch'
 
     env:
       PROJECT_ID: claude-engineer-487504
@@ -24,8 +31,33 @@ jobs:
       RUNTIME_SA: claude-engineer-ci@claude-engineer-487504.iam.gserviceaccount.com
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      # Resolve branch + SHA from the triggering CI run (workflow_run)
+      # or from the current ref (workflow_dispatch).
+      - name: Resolve deploy context
+        id: ctx
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            BRANCH="${{ github.event.workflow_run.head_branch }}"
+            SHA="${{ github.event.workflow_run.head_sha }}"
+          else
+            BRANCH="${GITHUB_REF_NAME}"
+            SHA="${{ github.sha }}"
+          fi
+
+          if [ "$BRANCH" = "develop" ]; then
+            SERVICE="claude-engineer-api-staging"
+          elif [ "$BRANCH" = "main" ]; then
+            SERVICE="claude-engineer-api"
+          else
+            echo "Unsupported branch: $BRANCH"
+            exit 1
+          fi
+
+          IMAGE="${{ env.AR_HOST }}/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.IMAGE_NAME }}:${SHA}"
+          echo "service=$SERVICE" >> $GITHUB_OUTPUT
+          echo "image=$IMAGE" >> $GITHUB_OUTPUT
+          echo "Branch: $BRANCH → Service: $SERVICE"
+          echo "Image: $IMAGE"
 
       - name: Authenticate to GCP
         uses: google-github-actions/auth@v2
@@ -37,35 +69,11 @@ jobs:
         with:
           project_id: ${{ env.PROJECT_ID }}
 
-      - name: Configure Docker for Artifact Registry
-        run: gcloud auth configure-docker ${{ env.AR_HOST }} --quiet
-
-      - name: Determine target service
-        id: target
-        run: |
-          if [ "${GITHUB_REF_NAME}" = "develop" ]; then
-            echo "service=claude-engineer-api-staging" >> $GITHUB_OUTPUT
-          elif [ "${GITHUB_REF_NAME}" = "main" ]; then
-            echo "service=claude-engineer-api" >> $GITHUB_OUTPUT
-          else
-            echo "Unsupported branch"
-            exit 1
-          fi
-
-          echo "image=${{ env.AR_HOST }}/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.IMAGE_NAME }}:${GITHUB_SHA}" >> $GITHUB_OUTPUT
-
-      - name: Build Docker Image
-        run: |
-          docker build -t "${{ steps.target.outputs.image }}" .
-
-      - name: Push Docker Image
-        run: |
-          docker push "${{ steps.target.outputs.image }}"
-
+      # No Docker build here — we deploy the image CI already validated and pushed.
       - name: Deploy to Cloud Run
         run: |
-          gcloud run deploy "${{ steps.target.outputs.service }}" \
-            --image "${{ steps.target.outputs.image }}" \
+          gcloud run deploy "${{ steps.ctx.outputs.service }}" \
+            --image "${{ steps.ctx.outputs.image }}" \
             --region "${{ env.REGION }}" \
             --platform managed \
             --service-account "${{ env.RUNTIME_SA }}" \
@@ -73,6 +81,6 @@ jobs:
 
       - name: Output Service URL
         run: |
-          gcloud run services describe "${{ steps.target.outputs.service }}" \
+          gcloud run services describe "${{ steps.ctx.outputs.service }}" \
             --region "${{ env.REGION }}" \
             --format="value(status.url)"
