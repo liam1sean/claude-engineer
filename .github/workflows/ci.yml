@@ -19,10 +19,10 @@ env:
   AR_HOST: us-central1-docker.pkg.dev
   PROJECT_ID: claude-engineer-487504
   AR_REPO: claude-engineer-docker
-  IMAGE_NAME: claude-engineer-api
 
 jobs:
-  build-and-test:
+  # ── API service (root package) ──────────────────────────────────────────
+  build-api:
     runs-on: ubuntu-latest
 
     steps:
@@ -47,17 +47,14 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # Build once; tag by commit SHA for later promotion to AR
-      - name: Build Docker Image
+      - name: Build API Docker Image
         id: build
         run: |
-          LOCAL_TAG=${{ env.IMAGE_NAME }}:${{ github.sha }}
+          LOCAL_TAG=claude-engineer-api:${{ github.sha }}
           docker build -t $LOCAL_TAG .
           docker image inspect $LOCAL_TAG > /dev/null
           echo "local_tag=$LOCAL_TAG" >> $GITHUB_OUTPUT
 
-      # Push to Artifact Registry only on real pushes (not PRs)
-      # Deploy workflow will reuse this exact image — no rebuild.
       - name: Authenticate to GCP
         if: github.event_name == 'push'
         uses: google-github-actions/auth@v2
@@ -70,10 +67,65 @@ jobs:
         with:
           project_id: ${{ env.PROJECT_ID }}
 
-      - name: Push Image to Artifact Registry
+      - name: Push API Image to Artifact Registry
         if: github.event_name == 'push'
         run: |
-          AR_IMAGE=${{ env.AR_HOST }}/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          AR_IMAGE=${{ env.AR_HOST }}/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/claude-engineer-api:${{ github.sha }}
+          gcloud auth configure-docker ${{ env.AR_HOST }} --quiet
+          docker tag ${{ steps.build.outputs.local_tag }} $AR_IMAGE
+          docker push $AR_IMAGE
+          echo "Pushed: $AR_IMAGE"
+
+  # ── Web service (services/web) ──────────────────────────────────────────
+  build-web:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: services/web/package-lock.json
+
+      - name: Install Web Dependencies
+        run: npm ci
+        working-directory: services/web
+
+      - name: Run Web Tests
+        run: npm test --if-present
+        working-directory: services/web
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Web Docker Image
+        id: build
+        run: |
+          LOCAL_TAG=claude-engineer-web:${{ github.sha }}
+          docker build -t $LOCAL_TAG services/web
+          docker image inspect $LOCAL_TAG > /dev/null
+          echo "local_tag=$LOCAL_TAG" >> $GITHUB_OUTPUT
+
+      - name: Authenticate to GCP
+        if: github.event_name == 'push'
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Setup gcloud
+        if: github.event_name == 'push'
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+
+      - name: Push Web Image to Artifact Registry
+        if: github.event_name == 'push'
+        run: |
+          AR_IMAGE=${{ env.AR_HOST }}/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/claude-engineer-web:${{ github.sha }}
           gcloud auth configure-docker ${{ env.AR_HOST }} --quiet
           docker tag ${{ steps.build.outputs.local_tag }} $AR_IMAGE
           docker push $AR_IMAGE

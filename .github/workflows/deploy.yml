@@ -1,9 +1,8 @@
 name: Deploy (Cloud Run)
 
-# Triggered automatically when CI Pipeline completes on main or develop.
-# Only proceeds if CI succeeded — this is the gate.
-# workflow_dispatch is retained for emergency manual deploys;
-# it expects the image for github.sha to already exist in Artifact Registry.
+# Triggered when CI Pipeline completes on main or develop (both jobs must pass).
+# Deploys API service first (IAM-protected), then web service (public), then runs smoke test.
+# workflow_dispatch is retained for emergency manual redeploys.
 on:
   workflow_run:
     workflows: ["CI Pipeline"]
@@ -18,8 +17,6 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    # CI gate: skip if the triggering CI run did not succeed.
-    # workflow_dispatch bypasses this check (manual emergency use).
     if: github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch'
 
     env:
@@ -27,12 +24,16 @@ jobs:
       REGION: us-central1
       AR_HOST: us-central1-docker.pkg.dev
       AR_REPO: claude-engineer-docker
-      IMAGE_NAME: claude-engineer-api
       RUNTIME_SA: claude-engineer-ci@claude-engineer-487504.iam.gserviceaccount.com
 
     steps:
-      # Resolve branch + SHA from the triggering CI run (workflow_run)
-      # or from the current ref (workflow_dispatch).
+      # Checkout at the triggering SHA so tools/smoke.js is available.
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      # Resolve branch, SHA, service names, and image URIs for both services.
       - name: Resolve deploy context
         id: ctx
         run: |
@@ -45,19 +46,22 @@ jobs:
           fi
 
           if [ "$BRANCH" = "develop" ]; then
-            SERVICE="claude-engineer-api-staging"
+            API_SERVICE="claude-engineer-api-staging"
+            WEB_SERVICE="claude-engineer-web-staging"
           elif [ "$BRANCH" = "main" ]; then
-            SERVICE="claude-engineer-api"
+            API_SERVICE="claude-engineer-api"
+            WEB_SERVICE="claude-engineer-web"
           else
             echo "Unsupported branch: $BRANCH"
             exit 1
           fi
 
-          IMAGE="${{ env.AR_HOST }}/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.IMAGE_NAME }}:${SHA}"
-          echo "service=$SERVICE" >> $GITHUB_OUTPUT
-          echo "image=$IMAGE" >> $GITHUB_OUTPUT
-          echo "Branch: $BRANCH → Service: $SERVICE"
-          echo "Image: $IMAGE"
+          BASE="${{ env.AR_HOST }}/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}"
+          echo "api_service=$API_SERVICE"   >> $GITHUB_OUTPUT
+          echo "web_service=$WEB_SERVICE"   >> $GITHUB_OUTPUT
+          echo "api_image=${BASE}/claude-engineer-api:${SHA}" >> $GITHUB_OUTPUT
+          echo "web_image=${BASE}/claude-engineer-web:${SHA}" >> $GITHUB_OUTPUT
+          echo "Branch: $BRANCH | API: $API_SERVICE | Web: $WEB_SERVICE"
 
       - name: Authenticate to GCP
         uses: google-github-actions/auth@v2
@@ -69,18 +73,58 @@ jobs:
         with:
           project_id: ${{ env.PROJECT_ID }}
 
-      # No Docker build here — we deploy the image CI already validated and pushed.
-      - name: Deploy to Cloud Run
+      # ── Deploy API service (IAM-protected, not public) ────────────────
+      - name: Deploy API service
         run: |
-          gcloud run deploy "${{ steps.ctx.outputs.service }}" \
-            --image "${{ steps.ctx.outputs.image }}" \
+          gcloud run deploy "${{ steps.ctx.outputs.api_service }}" \
+            --image "${{ steps.ctx.outputs.api_image }}" \
             --region "${{ env.REGION }}" \
             --platform managed \
             --service-account "${{ env.RUNTIME_SA }}" \
+            --no-allow-unauthenticated \
             --quiet
 
-      - name: Output Service URL
+      # ── Get API URL so the web service can be configured ─────────────
+      - name: Get API service URL
+        id: api_url
         run: |
-          gcloud run services describe "${{ steps.ctx.outputs.service }}" \
+          URL=$(gcloud run services describe "${{ steps.ctx.outputs.api_service }}" \
             --region "${{ env.REGION }}" \
-            --format="value(status.url)"
+            --format="value(status.url)")
+          echo "url=$URL" >> $GITHUB_OUTPUT
+          echo "API URL: $URL"
+
+      # ── Deploy web service (public-facing UI) ─────────────────────────
+      # Injects API_CLAUDE_URL so the web service knows where to proxy requests.
+      - name: Deploy web service
+        run: |
+          gcloud run deploy "${{ steps.ctx.outputs.web_service }}" \
+            --image "${{ steps.ctx.outputs.web_image }}" \
+            --region "${{ env.REGION }}" \
+            --platform managed \
+            --service-account "${{ env.RUNTIME_SA }}" \
+            --allow-unauthenticated \
+            --set-env-vars "API_CLAUDE_URL=${{ steps.api_url.outputs.url }}" \
+            --quiet
+
+      # ── Get web URL for smoke test and summary ────────────────────────
+      - name: Get web service URL
+        id: web_url
+        run: |
+          URL=$(gcloud run services describe "${{ steps.ctx.outputs.web_service }}" \
+            --region "${{ env.REGION }}" \
+            --format="value(status.url)")
+          echo "url=$URL" >> $GITHUB_OUTPUT
+          echo "Web URL: $URL"
+
+      # ── Smoke test: validate the deployed web service end-to-end ─────
+      - name: Setup Node.js for smoke test
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Run smoke test
+        run: node tools/smoke.js
+        env:
+          WEB_SERVICE_URL: ${{ steps.web_url.outputs.url }}
+        timeout-minutes: 3
