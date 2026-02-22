@@ -16,8 +16,9 @@ if (!process.env.ANTHROPIC_API_KEY) {
   process.exit(1);
 }
 if (!process.env.SERVICE_API_KEY) {
-  console.error("FATAL: SERVICE_API_KEY is not set. Add it to .env and restart.");
-  process.exit(1);
+  // In production the API service is protected by Cloud Run IAM (--no-allow-unauthenticated).
+  // SERVICE_API_KEY is only required for local development.
+  console.warn("WARN: SERVICE_API_KEY not set — x-api-key auth disabled. Relying on Cloud Run IAM.");
 }
 
 const app = express();
@@ -54,8 +55,12 @@ function asyncHandler(fn) {
 }
 
 function requireApiKey(req, res, next) {
+  const expected = process.env.SERVICE_API_KEY;
+  // If SERVICE_API_KEY is not configured, auth is handled by Cloud Run IAM at the
+  // infrastructure layer — skip application-level check.
+  if (!expected) return next();
   const key = req.headers["x-api-key"];
-  if (!key || key !== process.env.SERVICE_API_KEY) {
+  if (!key || key !== expected) {
     return res.status(401).json({ error: "Unauthorized" });
   }
   next();

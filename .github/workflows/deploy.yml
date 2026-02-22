@@ -1,9 +1,9 @@
 name: Deploy (Cloud Run)
 
-# Triggered automatically when CI Pipeline completes on main or develop.
-# Only proceeds if CI succeeded — this is the gate.
-# workflow_dispatch is retained for emergency manual deploys;
-# it expects the image for github.sha to already exist in Artifact Registry.
+# Triggered when CI Pipeline completes on main or develop (both jobs must pass).
+# Deploys API service first (IAM-protected), then web service (public), then runs smoke test.
+# workflow_dispatch is retained for emergency manual redeploys.
+
 on:
   workflow_run:
     workflows: ["CI Pipeline"]
@@ -15,54 +15,98 @@ concurrency:
   group: deploy-${{ github.event.workflow_run.head_branch || github.ref_name }}
   cancel-in-progress: true
 
-env:
-  PROJECT_ID: claude-engineer-487504
-  REGION: us-central1
-  AR_HOST: us-central1-docker.pkg.dev
-  AR_REPO: claude-engineer-docker
-  IMAGE_NAME: claude-engineer-api
-  RUNTIME_SA: claude-engineer-ci@claude-engineer-487504.iam.gserviceaccount.com
-
 jobs:
-  deploy:
-    # CI gate: run only when CI succeeded (workflow_run) OR when manually dispatched (emergency).
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+  # Gate job: ALWAYS runs and ALWAYS succeeds.
+  # This prevents "red failed" runs in any scenario where the workflow triggers but deploy is skipped.
+  check:
     runs-on: ubuntu-latest
-
+    outputs:
+      should_deploy: ${{ steps.evaluate.outputs.should_deploy }}
+      branch: ${{ steps.evaluate.outputs.branch }}
+      sha: ${{ steps.evaluate.outputs.sha }}
     steps:
-      - name: Resolve deploy context (branch + sha)
-        id: ctx
+      - name: Evaluate deploy conditions
+        id: evaluate
+        shell: bash
         run: |
-          if [ "${{ github.event_name }}" = "workflow_run" ]; then
-            echo "branch=${{ github.event.workflow_run.head_branch }}" >> $GITHUB_OUTPUT
-            echo "sha=${{ github.event.workflow_run.head_sha }}" >> $GITHUB_OUTPUT
+          SHOULD_DEPLOY="false"
+          BRANCH=""
+          SHA=""
+
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            SHOULD_DEPLOY="true"
+            BRANCH="${GITHUB_REF_NAME}"
+            SHA="${{ github.sha }}"
+            echo "Manual dispatch: deploying ref=${BRANCH} sha=${SHA}"
+          elif [[ "${{ github.event_name }}" == "workflow_run" ]]; then
+            BRANCH="${{ github.event.workflow_run.head_branch }}"
+            SHA="${{ github.event.workflow_run.head_sha }}"
+            CONCLUSION="${{ github.event.workflow_run.conclusion }}"
+
+            if [[ "$CONCLUSION" == "success" && ( "$BRANCH" == "main" || "$BRANCH" == "develop" ) ]]; then
+              SHOULD_DEPLOY="true"
+              echo "workflow_run success on ${BRANCH}: deploying sha=${SHA}"
+            else
+              echo "Skipping deploy: conclusion=${CONCLUSION} branch=${BRANCH}"
+            fi
           else
-            echo "branch=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
-            echo "sha=${GITHUB_SHA}" >> $GITHUB_OUTPUT
+            echo "Skipping deploy: unsupported event ${GITHUB_EVENT_NAME}"
           fi
 
-      - name: Determine target service + image
-        id: target
-        run: |
-          BRANCH="${{ steps.ctx.outputs.branch }}"
-          SHA="${{ steps.ctx.outputs.sha }}"
+          echo "should_deploy=${SHOULD_DEPLOY}" >> "$GITHUB_OUTPUT"
+          echo "branch=${BRANCH}" >> "$GITHUB_OUTPUT"
+          echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
 
-          if [ "$BRANCH" = "develop" ]; then
-            SERVICE="claude-engineer-api-staging"
-          elif [ "$BRANCH" = "main" ]; then
-            SERVICE="claude-engineer-api"
+  deploy:
+    runs-on: ubuntu-latest
+    needs: check
+    if: needs.check.outputs.should_deploy == 'true'
+
+    env:
+      PROJECT_ID: claude-engineer-487504
+      REGION: us-central1
+      AR_HOST: us-central1-docker.pkg.dev
+      AR_REPO: claude-engineer-docker
+      RUNTIME_SA: claude-engineer-ci@claude-engineer-487504.iam.gserviceaccount.com
+
+    steps:
+      # Checkout at the triggering SHA so tools/smoke.js is available.
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.check.outputs.sha }}
+
+      # Resolve branch, SHA, service names, and image URIs for BOTH services.
+      - name: Resolve deploy context
+        id: ctx
+        shell: bash
+        run: |
+          BRANCH="${{ needs.check.outputs.branch }}"
+          SHA="${{ needs.check.outputs.sha }}"
+
+          if [[ "$BRANCH" == "develop" ]]; then
+            API_SERVICE="claude-engineer-api-staging"
+            WEB_SERVICE="claude-engineer-web-staging"
+          elif [[ "$BRANCH" == "main" ]]; then
+            API_SERVICE="claude-engineer-api"
+            WEB_SERVICE="claude-engineer-web"
           else
-            echo "Unsupported branch: $BRANCH"
+            echo "Unsupported branch for deploy: $BRANCH"
             exit 1
           fi
 
-          IMAGE="${{ env.AR_HOST }}/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.IMAGE_NAME }}:${SHA}"
+          BASE="${{ env.AR_HOST }}/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}"
 
-          echo "service=$SERVICE" >> $GITHUB_OUTPUT
-          echo "image=$IMAGE" >> $GITHUB_OUTPUT
+          echo "api_service=$API_SERVICE" >> "$GITHUB_OUTPUT"
+          echo "web_service=$WEB_SERVICE" >> "$GITHUB_OUTPUT"
+          echo "api_image=${BASE}/claude-engineer-api:${SHA}" >> "$GITHUB_OUTPUT"
+          echo "web_image=${BASE}/claude-engineer-web:${SHA}" >> "$GITHUB_OUTPUT"
 
-          echo "Branch: $BRANCH → Service: $SERVICE"
-          echo "Image: $IMAGE"
+          echo "Deploying BRANCH=$BRANCH SHA=$SHA"
+          echo "API_SERVICE=$API_SERVICE"
+          echo "WEB_SERVICE=$WEB_SERVICE"
+          echo "API_IMAGE=${BASE}/claude-engineer-api:${SHA}"
+          echo "WEB_IMAGE=${BASE}/claude-engineer-web:${SHA}"
 
       - name: Authenticate to GCP
         uses: google-github-actions/auth@v2
@@ -74,18 +118,62 @@ jobs:
         with:
           project_id: ${{ env.PROJECT_ID }}
 
-      # No Docker build here — we deploy the image CI already validated and pushed.
-      - name: Deploy to Cloud Run
+      # ── Deploy API service (IAM-protected, not public) ─────────────────────────
+      - name: Deploy API service
+        shell: bash
         run: |
-          gcloud run deploy "${{ steps.target.outputs.service }}" \
-            --image "${{ steps.target.outputs.image }}" \
+          gcloud run deploy "${{ steps.ctx.outputs.api_service }}" \
+            --image "${{ steps.ctx.outputs.api_image }}" \
             --region "${{ env.REGION }}" \
             --platform managed \
             --service-account "${{ env.RUNTIME_SA }}" \
+            --no-allow-unauthenticated \
             --quiet
 
-      - name: Output Service URL
+      # ── Get API URL so the web service can be configured ──────────────────────
+      - name: Get API service URL
+        id: api_url
+        shell: bash
         run: |
-          gcloud run services describe "${{ steps.target.outputs.service }}" \
+          URL=$(gcloud run services describe "${{ steps.ctx.outputs.api_service }}" \
             --region "${{ env.REGION }}" \
-            --format="value(status.url)"
+            --format="value(status.url)")
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "API URL: $URL"
+
+      # ── Deploy Web service (public-facing UI) ─────────────────────────────────
+      # Injects API_CLAUDE_URL so the web service knows where to call/proxy requests.
+      - name: Deploy Web service
+        shell: bash
+        run: |
+          gcloud run deploy "${{ steps.ctx.outputs.web_service }}" \
+            --image "${{ steps.ctx.outputs.web_image }}" \
+            --region "${{ env.REGION }}" \
+            --platform managed \
+            --service-account "${{ env.RUNTIME_SA }}" \
+            --allow-unauthenticated \
+            --set-env-vars "API_CLAUDE_URL=${{ steps.api_url.outputs.url }}" \
+            --quiet
+
+      # ── Get Web URL for smoke test and for you to open in browser ─────────────
+      - name: Get Web service URL
+        id: web_url
+        shell: bash
+        run: |
+          URL=$(gcloud run services describe "${{ steps.ctx.outputs.web_service }}" \
+            --region "${{ env.REGION }}" \
+            --format="value(status.url)")
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "WEB URL: $URL"
+
+      # ── Smoke test: validate the deployed web service end-to-end ──────────────
+      - name: Setup Node.js for smoke test
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Run smoke test
+        run: node tools/smoke.js
+        env:
+          WEB_SERVICE_URL: ${{ steps.web_url.outputs.url }}
+        timeout-minutes: 3
