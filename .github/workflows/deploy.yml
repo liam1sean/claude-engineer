@@ -14,17 +14,8 @@ concurrency:
   group: deploy-${{ github.event.workflow_run.head_branch || github.ref_name }}
   cancel-in-progress: true
 
-env:
-  PROJECT_ID: claude-engineer-487504
-  REGION: us-central1
-  AR_HOST: us-central1-docker.pkg.dev
-  AR_REPO: claude-engineer-docker
-  IMAGE_NAME: claude-engineer-api
-  RUNTIME_SA: claude-engineer-ci@claude-engineer-487504.iam.gserviceaccount.com
-
 jobs:
-  deploy_staging:
-    if: github.ref_name == 'develop'
+  deploy:
     runs-on: ubuntu-latest
     if: github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch'
 
@@ -35,28 +26,6 @@ jobs:
       AR_REPO: claude-engineer-docker
       RUNTIME_SA: claude-engineer-ci@claude-engineer-487504.iam.gserviceaccount.com
 
-      - name: Push Docker Image
-        run: docker push "${{ steps.target.outputs.image }}"
-
-      - name: Deploy to Cloud Run
-        run: |
-          gcloud run deploy "${{ steps.target.outputs.service }}" \
-            --image "${{ steps.target.outputs.image }}" \
-            --region "${{ env.REGION }}" \
-            --platform managed \
-            --service-account "${{ env.RUNTIME_SA }}" \
-            --quiet
-
-      - name: Output Service URL
-        run: |
-          gcloud run services describe "${{ steps.target.outputs.service }}" \
-            --region "${{ env.REGION }}" \
-            --format="value(status.url)"
-
-  deploy_production:
-    if: github.ref_name == 'main'
-    runs-on: ubuntu-latest
-    environment: production
     steps:
       # Checkout at the triggering SHA so tools/smoke.js is available.
       - name: Checkout

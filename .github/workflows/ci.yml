@@ -21,7 +21,7 @@ env:
   AR_REPO: claude-engineer-docker
 
 jobs:
-  # ── API service (root package) ──────────────────────────────────────────
+  # ── API service (api/) ──────────────────────────────────────────────────
   build-api:
     runs-on: ubuntu-latest
 
@@ -34,15 +34,19 @@ jobs:
         with:
           node-version: "20"
           cache: "npm"
+          cache-dependency-path: api/package-lock.json
 
       - name: Install Dependencies
         run: npm ci
+        working-directory: api
 
       - name: Run Tests
         run: npm test --if-present
+        working-directory: api
 
       - name: Run Lint
         run: npm run lint --if-present
+        working-directory: api
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -51,7 +55,7 @@ jobs:
         id: build
         run: |
           LOCAL_TAG=claude-engineer-api:${{ github.sha }}
-          docker build -t $LOCAL_TAG .
+          docker build -t $LOCAL_TAG api
           docker image inspect $LOCAL_TAG > /dev/null
           echo "local_tag=$LOCAL_TAG" >> $GITHUB_OUTPUT
 
@@ -76,7 +80,7 @@ jobs:
           docker push $AR_IMAGE
           echo "Pushed: $AR_IMAGE"
 
-  # ── Web service (services/web) ──────────────────────────────────────────
+  # ── Web service (web/) ──────────────────────────────────────────────────
   build-web:
     runs-on: ubuntu-latest
 
@@ -89,15 +93,15 @@ jobs:
         with:
           node-version: "20"
           cache: "npm"
-          cache-dependency-path: services/web/package-lock.json
+          cache-dependency-path: web/package-lock.json
 
       - name: Install Web Dependencies
         run: npm ci
-        working-directory: services/web
+        working-directory: web
 
       - name: Run Web Tests
         run: npm test --if-present
-        working-directory: services/web
+        working-directory: web
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -106,7 +110,7 @@ jobs:
         id: build
         run: |
           LOCAL_TAG=claude-engineer-web:${{ github.sha }}
-          docker build -t $LOCAL_TAG services/web
+          docker build -t $LOCAL_TAG web
           docker image inspect $LOCAL_TAG > /dev/null
           echo "local_tag=$LOCAL_TAG" >> $GITHUB_OUTPUT
 
