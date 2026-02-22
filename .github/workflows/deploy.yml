@@ -9,7 +9,7 @@ on:
     workflows: ["CI Pipeline"]
     types: [completed]
     branches: [main, develop]
-  workflow_dispatch:
+  workflow_dispatch: {}
 
 concurrency:
   group: deploy-${{ github.event.workflow_run.head_branch || github.ref_name }}
@@ -24,57 +24,28 @@ env:
   RUNTIME_SA: claude-engineer-ci@claude-engineer-487504.iam.gserviceaccount.com
 
 jobs:
-  deploy_staging:
-    if: github.ref_name == 'develop'
+  deploy:
+    # CI gate: run only when CI succeeded (workflow_run) OR when manually dispatched (emergency).
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
-    # CI gate: skip if the triggering CI run did not succeed.
-    # workflow_dispatch bypasses this check (manual emergency use).
-    if: github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch'
 
-      - name: Set image + service
-        id: target
-        run: |
-          echo "service=claude-engineer-api-staging" >> $GITHUB_OUTPUT
-          echo "image=${{ env.AR_HOST }}/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.IMAGE_NAME }}:${GITHUB_SHA}" >> $GITHUB_OUTPUT
-
-      - name: Build Docker Image
-        run: docker build -t "${{ steps.target.outputs.image }}" .
-
-      - name: Push Docker Image
-        run: docker push "${{ steps.target.outputs.image }}"
-
-      - name: Deploy to Cloud Run
-        run: |
-          gcloud run deploy "${{ steps.target.outputs.service }}" \
-            --image "${{ steps.target.outputs.image }}" \
-            --region "${{ env.REGION }}" \
-            --platform managed \
-            --service-account "${{ env.RUNTIME_SA }}" \
-            --quiet
-
-      - name: Output Service URL
-        run: |
-          gcloud run services describe "${{ steps.target.outputs.service }}" \
-            --region "${{ env.REGION }}" \
-            --format="value(status.url)"
-
-  deploy_production:
-    if: github.ref_name == 'main'
-    runs-on: ubuntu-latest
-    environment: production
     steps:
-      # Resolve branch + SHA from the triggering CI run (workflow_run)
-      # or from the current ref (workflow_dispatch).
-      - name: Resolve deploy context
+      - name: Resolve deploy context (branch + sha)
         id: ctx
         run: |
           if [ "${{ github.event_name }}" = "workflow_run" ]; then
-            BRANCH="${{ github.event.workflow_run.head_branch }}"
-            SHA="${{ github.event.workflow_run.head_sha }}"
+            echo "branch=${{ github.event.workflow_run.head_branch }}" >> $GITHUB_OUTPUT
+            echo "sha=${{ github.event.workflow_run.head_sha }}" >> $GITHUB_OUTPUT
           else
-            BRANCH="${GITHUB_REF_NAME}"
-            SHA="${{ github.sha }}"
+            echo "branch=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
+            echo "sha=${GITHUB_SHA}" >> $GITHUB_OUTPUT
           fi
+
+      - name: Determine target service + image
+        id: target
+        run: |
+          BRANCH="${{ steps.ctx.outputs.branch }}"
+          SHA="${{ steps.ctx.outputs.sha }}"
 
           if [ "$BRANCH" = "develop" ]; then
             SERVICE="claude-engineer-api-staging"
@@ -86,8 +57,10 @@ jobs:
           fi
 
           IMAGE="${{ env.AR_HOST }}/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.IMAGE_NAME }}:${SHA}"
+
           echo "service=$SERVICE" >> $GITHUB_OUTPUT
           echo "image=$IMAGE" >> $GITHUB_OUTPUT
+
           echo "Branch: $BRANCH → Service: $SERVICE"
           echo "Image: $IMAGE"
 
@@ -104,8 +77,8 @@ jobs:
       # No Docker build here — we deploy the image CI already validated and pushed.
       - name: Deploy to Cloud Run
         run: |
-          gcloud run deploy "${{ steps.ctx.outputs.service }}" \
-            --image "${{ steps.ctx.outputs.image }}" \
+          gcloud run deploy "${{ steps.target.outputs.service }}" \
+            --image "${{ steps.target.outputs.image }}" \
             --region "${{ env.REGION }}" \
             --platform managed \
             --service-account "${{ env.RUNTIME_SA }}" \
@@ -113,6 +86,6 @@ jobs:
 
       - name: Output Service URL
         run: |
-          gcloud run services describe "${{ steps.ctx.outputs.service }}" \
+          gcloud run services describe "${{ steps.target.outputs.service }}" \
             --region "${{ env.REGION }}" \
             --format="value(status.url)"
