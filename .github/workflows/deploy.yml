@@ -9,7 +9,7 @@ on:
     workflows: ["CI Pipeline"]
     types: [completed]
     branches: [main, develop]
-  workflow_dispatch:
+  workflow_dispatch: {}
 
 concurrency:
   group: deploy-${{ github.event.workflow_run.head_branch || github.ref_name }}
