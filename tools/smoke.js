@@ -48,20 +48,20 @@ async function run() {
 
   // ── Test 2: Missing prompt returns 400 ───────────────────────────────
   {
-    const res = await fetchWithRetry(`${WEB_URL}/api/ask`, {
+    const res = await fetchWithRetry(`${WEB_URL}/api/claude`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({}),
     });
     assert.equal(res.status, 400, `Expected 400 for empty prompt, got ${res.status}`);
-    console.log("✓ POST /api/ask (no prompt) → 400");
+    console.log("✓ POST /api/claude (no prompt) → 400");
     passed++;
   }
 
   // ── Test 3: Valid prompt returns a Claude response ────────────────────
   {
     console.log("  Calling Claude (may take a few seconds)…");
-    const res = await fetchWithRetry(`${WEB_URL}/api/ask`, {
+    const res = await fetchWithRetry(`${WEB_URL}/api/claude`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ prompt: "Reply with exactly three words: smoke test passed" }),
@@ -69,7 +69,7 @@ async function run() {
     assert.equal(res.status, 200, `Expected 200, got ${res.status}`);
     const body = await res.json();
     assert.ok(typeof body.text === "string" && body.text.length > 0, "Response missing text");
-    console.log(`✓ POST /api/ask → 200 ("${body.text.slice(0, 80).replace(/\n/g, " ")}")`);
+    console.log(`✓ POST /api/claude → 200 ("${body.text.slice(0, 80).replace(/\n/g, " ")}")`);
     passed++;
   }
 

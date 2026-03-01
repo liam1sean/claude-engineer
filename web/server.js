@@ -95,7 +95,11 @@ app.post("/api/ask", async (req, res) => {
 
 app.get("/health", (_req, res) => res.json({ status: "ok" }));
 
-app.listen(PORT, () => {
-  console.log(`Web service running on http://localhost:${PORT}`);
-  console.log(`API backend: ${API_URL}`);
-});
+export { app };
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  app.listen(PORT, () => {
+    console.log(`Web service running on http://localhost:${PORT}`);
+    console.log(`API backend: ${API_URL}`);
+  });
+}
