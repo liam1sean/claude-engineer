@@ -1,5 +1,9 @@
 name: Deploy (Cloud Run)
 
+# Triggered when CI Pipeline completes on main or develop (both jobs must pass)
+# Deploys API service first (IAM-protected), then web service (public), then runs smoke test
+# workflow_dispatch is retained for emergency manual redeploys
+
 on:
   workflow_run:
     workflows: ["CI Pipeline"]
@@ -12,8 +16,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Gate job: ALWAYS runs and ALWAYS succeeds.
-  # This prevents "red failed" runs if the workflow triggers but deploy is skipped.
+  # Gate job: evaluates whether deploy should run
   check:
     runs-on: ubuntu-latest
     outputs:
@@ -59,11 +62,13 @@ jobs:
       RUNTIME_SA: claude-engineer-ci@claude-engineer-487504.iam.gserviceaccount.com
 
     steps:
+      # Checkout the commit to deploy
       - name: Checkout
         uses: actions/checkout@v4
         with:
           ref: ${{ needs.check.outputs.sha }}
 
+      # Resolve service names and image URIs based on branch
       - name: Resolve deploy context
         id: ctx
         shell: bash
@@ -99,6 +104,7 @@ jobs:
         with:
           project_id: ${{ env.PROJECT_ID }}
 
+      # Deploy API service (IAM-protected)
       - name: Deploy API service
         shell: bash
         run: |
@@ -110,6 +116,7 @@ jobs:
             --no-allow-unauthenticated \
             --quiet
 
+      # Get API URL for web service
       - name: Get API service URL
         id: api_url
         shell: bash
@@ -119,6 +126,7 @@ jobs:
             --format="value(status.url)")
           echo "url=$URL" >> "$GITHUB_OUTPUT"
 
+      # Deploy Web service (public)
       - name: Deploy Web service
         shell: bash
         run: |
@@ -131,6 +139,7 @@ jobs:
             --set-env-vars "API_CLAUDE_URL=${{ steps.api_url.outputs.url }}" \
             --quiet
 
+      # Get Web service URL
       - name: Get Web service URL
         id: web_url
         shell: bash
@@ -140,6 +149,7 @@ jobs:
             --format="value(status.url)")
           echo "url=$URL" >> "$GITHUB_OUTPUT"
 
+      # Smoke test against API service
       - name: Setup Node.js for smoke test
         uses: actions/setup-node@v4
         with:
