@@ -1,0 +1,11 @@
+{
+  "timestamp": "2026-03-01T14:34:45.121Z",
+  "projectRoot": "C:\\dev\\claude-engineer",
+  "structure": {
+    "hasPackageJson": false,
+    "hasTsConfig": false,
+    "hasClaudeConfig": true,
+    "hasClaudeFlow": true
+  },
+  "scannedAt": 1772375685121
+}

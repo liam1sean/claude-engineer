@@ -1,15 +1,23 @@
 // config/config.js
 // Centralized configuration layer
-// Note: dotenv must be loaded BEFORE this module is imported (done in server.js)
+// All process.env reads are lazy (via getters) so this module is safe to
+// import before dotenv loads — values are resolved at access time, not at
+// module evaluation time.
 
 export const config = {
   server: {
-    port: process.env.PORT ? Number(process.env.PORT) : 3000,
+    get port() {
+      return process.env.PORT ? Number(process.env.PORT) : 3000;
+    },
   },
   claude: {
-    model: process.env.CLAUDE_MODEL || "claude-sonnet-4-20250514",
-    maxTokens: process.env.CLAUDE_MAX_TOKENS
-      ? Number(process.env.CLAUDE_MAX_TOKENS)
-      : 800,
+    get model() {
+      return process.env.CLAUDE_MODEL || "claude-sonnet-4-20250514";
+    },
+    get maxTokens() {
+      return process.env.CLAUDE_MAX_TOKENS
+        ? Number(process.env.CLAUDE_MAX_TOKENS)
+        : 800;
+    },
   },
 };

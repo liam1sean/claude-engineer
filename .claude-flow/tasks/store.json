@@ -1,0 +1,18 @@
+{
+  "tasks": {
+    "task-1772372633348-dv5mlc": {
+      "taskId": "task-1772372633348-dv5mlc",
+      "type": "research",
+      "description": "Read-only audit of this repo's CI/CD safety rails. Produce a prioritized backlog to reach production-ready agent-first delivery. Focus on: real tests, security scanning (deps + container), secret injection automation for ANTHROPIC_API_KEY, branch protection verification checklist, rollback smoke verification, environment separation, least-privilege service accounts. Do not modify files.",
+      "priority": "high",
+      "status": "pending",
+      "progress": 0,
+      "assignedTo": [],
+      "tags": [],
+      "createdAt": "2026-03-01T13:43:53.348Z",
+      "startedAt": null,
+      "completedAt": null
+    }
+  },
+  "version": "3.0.0"
+}

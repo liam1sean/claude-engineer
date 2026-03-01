@@ -16,17 +16,6 @@ dotenv.config({
   override: true,
 });
 
-// Safe key fingerprint (no full key)
-const _k = process.env.ANTHROPIC_API_KEY || "";
-console.log(
-  "[anthropic] key fingerprint:",
-  _k.slice(0, 8),
-  "...",
-  _k.slice(-6),
-  "len=",
-  _k.length
-);
-
 import express from "express";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
@@ -58,11 +47,6 @@ if (!keyValidation.valid) {
   console.error("Get your key at: https://console.anthropic.com/settings/keys");
   process.exit(1);
 }
-
-// Log key presence without exposing it
-const key = process.env.ANTHROPIC_API_KEY;
-const keyPreview = key.slice(0, 10) + "..." + key.slice(-4);
-console.log(`ANTHROPIC_API_KEY loaded: ${keyPreview}`);
 
 if (!process.env.SERVICE_API_KEY) {
   // In production the API service is protected by Cloud Run IAM (--no-allow-unauthenticated).
@@ -173,7 +157,13 @@ app.use((err, req, res, _next) => {
 
 // ── Start server ───────────────────────────────────────────────────────────────
 
-app.listen(config.server.port, () => {
-  console.log(`Server running on http://localhost:${config.server.port}`);
-  console.log(`Health check: http://localhost:${config.server.port}/health`);
-});
+export { app };
+
+// Only bind the port when this file is the process entry-point, not when it is
+// imported by the test runner.
+if (process.argv[1] === __filename) {
+  app.listen(config.server.port, () => {
+    console.log(`Server running on http://localhost:${config.server.port}`);
+    console.log(`Health check: http://localhost:${config.server.port}/health`);
+  });
+}
