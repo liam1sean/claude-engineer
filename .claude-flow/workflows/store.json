@@ -1,0 +1,14 @@
+{
+  "workflows": {
+    "workflow-1772378141142-ic1h1o": {
+      "workflowId": "workflow-1772378141142-ic1h1o",
+      "steps": [],
+      "status": "draft",
+      "currentStep": 0,
+      "variables": {},
+      "createdAt": "2026-03-01T15:15:41.142Z"
+    }
+  },
+  "templates": {},
+  "version": "3.0.0"
+}

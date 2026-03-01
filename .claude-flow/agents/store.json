@@ -1,0 +1,31 @@
+{
+  "agents": {
+    "agent-1772377223473-x10pp1": {
+      "agentId": "agent-1772377223473-x10pp1",
+      "agentType": "coder",
+      "status": "idle",
+      "health": 1,
+      "taskCount": 0,
+      "config": {
+        "provider": "anthropic"
+      },
+      "createdAt": "2026-03-01T15:00:23.473Z",
+      "model": "sonnet",
+      "modelRoutedBy": "default"
+    },
+    "agent-1772377267725-jodq11": {
+      "agentId": "agent-1772377267725-jodq11",
+      "agentType": "security-auditor",
+      "status": "idle",
+      "health": 1,
+      "taskCount": 0,
+      "config": {
+        "provider": "anthropic"
+      },
+      "createdAt": "2026-03-01T15:01:07.725Z",
+      "model": "sonnet",
+      "modelRoutedBy": "default"
+    }
+  },
+  "version": "3.0.0"
+}
