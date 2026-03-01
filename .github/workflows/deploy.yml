@@ -12,6 +12,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Gate job: ALWAYS runs and ALWAYS succeeds.
+  # This prevents "red failed" runs if the workflow triggers but deploy is skipped.
   check:
     runs-on: ubuntu-latest
     outputs:
@@ -146,6 +148,6 @@ jobs:
       - name: Run smoke test
         run: node tools/smoke.js
         env:
-          WEB_SERVICE_URL: ${{ steps.api_url.outputs.url }}
-          SERVICE_API_KEY: ${{ secrets.SERVICE_API_KEY }}
+          WEB_SERVICE_URL: ${{ steps.api_url.outputs.url }}     # run smoke test against API
+          SERVICE_API_KEY: ${{ secrets.SERVICE_API_KEY }}      # optional x-api-key auth
         timeout-minutes: 3
