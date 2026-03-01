@@ -16,8 +16,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Gate job: ALWAYS runs and ALWAYS succeeds.
-  # This prevents "red failed" runs in any scenario where the workflow triggers but deploy is skipped.
   check:
     runs-on: ubuntu-latest
     outputs:
@@ -70,13 +68,11 @@ jobs:
       RUNTIME_SA: claude-engineer-ci@claude-engineer-487504.iam.gserviceaccount.com
 
     steps:
-      # Checkout at the triggering SHA so tools/smoke.js is available.
       - name: Checkout
         uses: actions/checkout@v4
         with:
           ref: ${{ needs.check.outputs.sha }}
 
-      # Resolve branch, SHA, service names, and image URIs for BOTH services.
       - name: Resolve deploy context
         id: ctx
         shell: bash
@@ -118,7 +114,6 @@ jobs:
         with:
           project_id: ${{ env.PROJECT_ID }}
 
-      # ── Deploy API service (IAM-protected, not public) ─────────────────────────
       - name: Deploy API service
         shell: bash
         run: |
@@ -130,7 +125,6 @@ jobs:
             --no-allow-unauthenticated \
             --quiet
 
-      # ── Get API URL so the web service can be configured ──────────────────────
       - name: Get API service URL
         id: api_url
         shell: bash
@@ -141,8 +135,6 @@ jobs:
           echo "url=$URL" >> "$GITHUB_OUTPUT"
           echo "API URL: $URL"
 
-      # ── Deploy Web service (public-facing UI) ─────────────────────────────────
-      # Injects API_CLAUDE_URL so the web service knows where to call/proxy requests.
       - name: Deploy Web service
         shell: bash
         run: |
@@ -155,7 +147,6 @@ jobs:
             --set-env-vars "API_CLAUDE_URL=${{ steps.api_url.outputs.url }}" \
             --quiet
 
-      # ── Get Web URL for smoke test and for you to open in browser ─────────────
       - name: Get Web service URL
         id: web_url
         shell: bash
@@ -166,7 +157,6 @@ jobs:
           echo "url=$URL" >> "$GITHUB_OUTPUT"
           echo "WEB URL: $URL"
 
-      # ── Smoke test: validate the deployed web service end-to-end ──────────────
       - name: Setup Node.js for smoke test
         uses: actions/setup-node@v4
         with:
@@ -175,5 +165,6 @@ jobs:
       - name: Run smoke test
         run: node tools/smoke.js
         env:
-          WEB_SERVICE_URL: ${{ steps.web_url.outputs.url }}
+          WEB_SERVICE_URL: ${{ steps.api_url.outputs.url }}     # run smoke test against API
+          SERVICE_API_KEY: ${{ secrets.SERVICE_API_KEY }}      # optional x-api-key auth
         timeout-minutes: 3
