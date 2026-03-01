@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// tools/smoke.js — post-deploy smoke test for the web service.
+// tools/smoke.js — post-deploy smoke test for the API service.
 // Usage:
 //   WEB_SERVICE_URL=https://... node tools/smoke.js
 //   node tools/smoke.js https://...

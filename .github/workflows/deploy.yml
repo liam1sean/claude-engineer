@@ -166,7 +166,10 @@ jobs:
           echo "url=$URL" >> "$GITHUB_OUTPUT"
           echo "WEB URL: $URL"
 
-      # ── Smoke test: validate the deployed web service end-to-end ──────────────
+      # ── Smoke test: validate the deployed API service end-to-end ─────────────
+      # NOTE: The API service is IAM-protected (--no-allow-unauthenticated).
+      # The smoke test must run against a publicly reachable endpoint or the
+      # runner must supply a valid Cloud Run identity token / SERVICE_API_KEY.
       - name: Setup Node.js for smoke test
         uses: actions/setup-node@v4
         with:
@@ -175,5 +178,5 @@ jobs:
       - name: Run smoke test
         run: node tools/smoke.js
         env:
-          WEB_SERVICE_URL: ${{ steps.web_url.outputs.url }}
+          WEB_SERVICE_URL: ${{ steps.api_url.outputs.url }}
         timeout-minutes: 3
