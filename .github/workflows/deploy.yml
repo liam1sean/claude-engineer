@@ -36,20 +36,13 @@ jobs:
             SHOULD_DEPLOY="true"
             BRANCH="${GITHUB_REF_NAME}"
             SHA="${{ github.sha }}"
-            echo "Manual dispatch: deploying ref=${BRANCH} sha=${SHA}"
           elif [[ "${{ github.event_name }}" == "workflow_run" ]]; then
             BRANCH="${{ github.event.workflow_run.head_branch }}"
             SHA="${{ github.event.workflow_run.head_sha }}"
             CONCLUSION="${{ github.event.workflow_run.conclusion }}"
-
             if [[ "$CONCLUSION" == "success" && ( "$BRANCH" == "main" || "$BRANCH" == "develop" ) ]]; then
               SHOULD_DEPLOY="true"
-              echo "workflow_run success on ${BRANCH}: deploying sha=${SHA}"
-            else
-              echo "Skipping deploy: conclusion=${CONCLUSION} branch=${BRANCH}"
             fi
-          else
-            echo "Skipping deploy: unsupported event ${GITHUB_EVENT_NAME}"
           fi
 
           echo "should_deploy=${SHOULD_DEPLOY}" >> "$GITHUB_OUTPUT"
@@ -101,7 +94,6 @@ jobs:
           echo "api_image=${BASE}/claude-engineer-api:${SHA}" >> "$GITHUB_OUTPUT"
           echo "web_image=${BASE}/claude-engineer-web:${SHA}" >> "$GITHUB_OUTPUT"
 
-      # Authenticate to GCP
       - name: Authenticate to GCP
         uses: google-github-actions/auth@v2
         with:
@@ -166,6 +158,6 @@ jobs:
       - name: Run smoke test
         run: node tools/smoke.js
         env:
-          WEB_SERVICE_URL: ${{ steps.api_url.outputs.url }}     # points to API
-          SERVICE_API_KEY: ${{ secrets.SERVICE_API_KEY }}      # must be set in repo secrets
+          WEB_SERVICE_URL: ${{ steps.api_url.outputs.url }}     # run smoke test against API
+          SERVICE_API_KEY: ${{ secrets.SERVICE_API_KEY }}      # optional x-api-key auth
         timeout-minutes: 3
