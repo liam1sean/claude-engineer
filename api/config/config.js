@@ -1,5 +1,6 @@
 // config/config.js
 // Centralized configuration layer
+// Note: dotenv must be loaded BEFORE this module is imported (done in server.js)
 
 export const config = {
   server: {
